@@ -315,6 +315,8 @@ fork(void)
   np->state = RUNNABLE;
   release(&np->lock);
 
+  // copy the trace mask from the parent to the child process
+  np->trace_mask = p->trace_mask;
   return pid;
 }
 
@@ -653,4 +655,16 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+int
+processNum(void)
+{
+  struct proc *p;
+  int num = 0;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    if(p->state != UNUSED)
+      num++;
+  }
+  return num;
 }
