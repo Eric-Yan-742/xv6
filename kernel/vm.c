@@ -87,10 +87,11 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
     pte_t *pte = &pagetable[PX(level, va)];
     if(*pte & PTE_V) {
       pagetable = (pagetable_t)PTE2PA(*pte);
-    } else {
+    } else { // if the page table directory is not allocated i.e. PTE is not active
       if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
         return 0;
       memset(pagetable, 0, PGSIZE);
+      // change the pte to be active now
       *pte = PA2PTE(pagetable) | PTE_V;
     }
   }
@@ -144,12 +145,14 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
     panic("mappages: size");
   
   a = PGROUNDDOWN(va);
+  // we should count va itself, that's why va + size - 1
   last = PGROUNDDOWN(va + size - 1);
   for(;;){
     if((pte = walk(pagetable, a, 1)) == 0)
       return -1;
     if(*pte & PTE_V)
-      panic("mappages: remap");
+      panic("mappages: remap"); // PTE should not be active before mapping
+    // convert the physical address to pte with given permission and PTE-V
     *pte = PA2PTE(pa) | perm | PTE_V;
     if(a == last)
       break;
@@ -432,3 +435,33 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+// Print the content of a page table
+void printHelper(pagetable_t pt, int level)
+{
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pt[i];
+    if(pte & PTE_V){
+      for(int j = 0; j < level; j++){
+        // print all ..
+        printf("..");
+        if(j != level - 1)
+          printf(" ");
+      }
+      uint64 child = PTE2PA(pte);
+      printf("%d: pte %p pa %p\n", i, pte, child);
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0){
+        //this PTE points to a lower-level page table
+        printHelper((pagetable_t)child, level + 1);
+      }
+    }
+  }
+}
+void
+vmprint(pagetable_t pagetable)
+{
+  printf("page table %p\n", pagetable);
+  printHelper(pagetable, 1);
+}
+
+

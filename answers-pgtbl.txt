@@ -1,0 +1,9 @@
+
+
+
+
+Print a page table:
+page0: date and text of process
+page1: guard page for protect stack by present page0 overflow
+page2: stack of process
+page3 to last page: heap, trapfram, trampoline
