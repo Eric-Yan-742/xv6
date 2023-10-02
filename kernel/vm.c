@@ -437,22 +437,24 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 }
 
 // Print the content of a page table
+// level == 1, 2, 3
 void printHelper(pagetable_t pt, int level)
 {
   for(int i = 0; i < 512; i++){
     pte_t pte = pt[i];
     if(pte & PTE_V){
+      // print all dots
       for(int j = 0; j < level; j++){
         // print all ..
         printf("..");
         if(j != level - 1)
           printf(" ");
       }
-      uint64 child = PTE2PA(pte);
-      printf("%d: pte %p pa %p\n", i, pte, child);
+      uint64 pa = PTE2PA(pte);
+      printf("%d: pte %p pa %p\n", i, pte, pa);
       if((pte & (PTE_R|PTE_W|PTE_X)) == 0){
         //this PTE points to a lower-level page table
-        printHelper((pagetable_t)child, level + 1);
+        printHelper((pagetable_t)pa, level + 1);
       }
     }
   }

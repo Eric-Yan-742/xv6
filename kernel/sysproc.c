@@ -81,6 +81,34 @@ int
 sys_pgaccess(void)
 {
   // lab pgtbl: your code here.
+  unsigned int abits = 0;
+  struct proc* p = myproc();
+  pagetable_t pagetable = p->pagetable;
+  uint64 va; // virtual address of the first user page to check
+  if(argaddr(0, &va) < 0) {
+    return -1;
+  }
+  uint64 a = PGROUNDDOWN(va); // in case va is not page aligned
+  int num; // number of user pages to check
+  if(argint(1, &num) < 0) {
+    return -1;
+  }
+  uint64 ua; // user address to store the bit mask
+  if(argaddr(2, &ua) < 0) {
+    return -1;
+  }
+
+  for(int i = 0; i < num; i++) {
+    pte_t *pte = walk(pagetable, a, 0);
+    if(*pte & PTE_A) {
+      abits |= (1L << i); // set the bit of bitmask to be 1
+      *pte = *pte & (~PTE_A); // set PTE_A from 1 to 0 (clear it)
+    }
+    a += PGSIZE;
+  }
+  if(copyout(pagetable, ua, (char*)&abits, sizeof(abits)) < 0) {
+    return -1;
+  }
   return 0;
 }
 #endif
