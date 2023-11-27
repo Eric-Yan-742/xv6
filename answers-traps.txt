@@ -1,0 +1,11 @@
+a0, a1 and a2 store arguments. a0 stores the string, a1 stores f(8) + 1 = 12, a2 stores 13
+
+"li a1, 12" is main's call to f. main doesn't actually jump to f. The compiler just gives the result, which is 12. Similarly, f calls g in "addw a0, a0, 3". It doesn't actually jump to g. 
+
+Address of printf is 0x00000097 + 1510
+
+Value of "ra" is 0x38 (the address callee resumes)
+
+Output: "HE110 World". Hex of 57616 is "E110". 0x72 = 114 = 'r', 0x6c = 108 = 'l', 0x64 = 100 = 'd'. But the print out order is "rld", which means 0x72 is stored in the lowest address. It means RISC-V is little endian. Least significant bit is stored in the lowest address. If RISC-V is big-endian, I would change "i" to "0x726c6400". 
+
+Output is "x=3 y=1$. The value of y depends on value in a2 (the third argument) before calling printf. 

@@ -77,8 +77,24 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2) {
+    // if p->interval != 0
+    if(p->interval) {
+      p->passedTicks++;
+      // If it's time to call the handler
+      if(p->passedTicks == p->interval) {
+        p->passedTicks = 0;
+        if(!p->isInHandler) {
+          // store the state of the user program
+          memmove((void*)p->interruptedUser, (void*)p->trapframe, sizeof(struct trapframe));
+          p->trapframe->epc = p->handler;
+          // turn on the handler flag because we're about to jump to the handler
+          p->isInHandler = 1;
+        }
+      }
+    }
     yield();
+  }
 
   usertrapret();
 }

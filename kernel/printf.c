@@ -132,3 +132,17 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+void
+backtrace()
+{
+  uint64 ra, fp;
+  fp = r_fp();
+  uint64 top = PGROUNDUP(fp), bottom = PGROUNDDOWN(fp);
+  while(bottom <= fp && fp < top) {
+    ra = *(uint64*)(fp - 8);
+    printf("ra: %p, fp: %p\n", ra, fp);
+    fp = *(uint64*)(fp - 16);
+  }
+  printf("Top of the stack: %p\n", fp);
+  printf("usertrap's saved fp: %p\n", *(uint64*)(fp - 16));
+}

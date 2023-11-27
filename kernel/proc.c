@@ -127,6 +127,8 @@ found:
     return 0;
   }
 
+  
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -140,6 +142,18 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+
+  // lab4: initialize alarm fields
+  // Allocate a page for storing interrupted user program.
+  if((p->interruptedUser = (struct trapframe *)kalloc()) == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  p->interval = 0;
+  p->passedTicks = 0;
+  p->handler = 0;
+  p->isInHandler = 0;
 
   return p;
 }
@@ -164,6 +178,13 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  // lab4
+  p->interval = 0;
+  p->passedTicks = 0;
+  p->handler = 0;
+  if(p->interruptedUser)
+    kfree((void*)p->interruptedUser);
 }
 
 // Create a user page table for a given process,

@@ -70,6 +70,7 @@ sys_sleep(void)
     sleep(&ticks, &tickslock);
   }
   release(&tickslock);
+  backtrace();
   return 0;
 }
 
@@ -94,4 +95,38 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// lab4
+uint64
+sys_sigalarm(void)
+{
+  int interval;
+  uint64 fn;
+  if(argint(0, &interval) < 0)
+    return -1;
+  if(argaddr(1, &fn) < 0)
+    return -1;
+
+  struct proc* p = myproc();
+  if(interval >= 0) {
+    p->interval = interval;
+    p->passedTicks = 0;
+    p->handler = fn; 
+  } else {
+    return -1;
+  }
+  return 0;
+}
+
+
+uint64
+sys_sigreturn(void)
+{
+  struct proc *p = myproc();
+  // restore user program state, so the handler can resume where the user program is interrupted 
+  memmove((void*)p->trapframe, (void*)p->interruptedUser, sizeof(struct trapframe));
+  // turn off the handler flag because we're about to jump out of the handler in user space. 
+  p->isInHandler = 0;
+  return 0;
 }

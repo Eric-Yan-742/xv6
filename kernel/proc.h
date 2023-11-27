@@ -105,4 +105,12 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+                               //
+                               //
+  // lab4
+  int interval;
+  uint64 handler;
+  int passedTicks;
+  struct trapframe *interruptedUser; // used to store the state of the interrupted user application due to time interrupt
+  int isInHandler;                   // A flag that records if the user program is in the handler
 };
