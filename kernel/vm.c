@@ -15,6 +15,8 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+extern int page_count[PHYSTOP / PGSIZE]; // cow lab: page reference count
+
 // Make a direct-map page table for the kernel.
 pagetable_t
 kvmmake(void)
@@ -167,6 +169,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {
   uint64 a;
   pte_t *pte;
+  uint64 pa;
 
   if((va % PGSIZE) != 0)
     panic("uvmunmap: not aligned");
@@ -178,6 +181,8 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
+    pa = PTE2PA(*pte);
+    page_count[pa / PGSIZE]--;
     if(do_free){
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
@@ -303,7 +308,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -311,19 +316,34 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+    
+    // cow lab
+
+    // clear parent's write bit in PTE
+    *pte = *pte & (~PTE_W);
+    // Mark both PTE as COW page
+    *pte = *pte | PTE_C;
+
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+    
+    // map new pagetable's PTE to the same physical address
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
+      // kfree(mem);
       goto err;
     }
+
+    // increment page count
+    page_count[pa / PGSIZE]++;
+
+
   }
   return 0;
 
  err:
   uvmunmap(new, 0, i / PGSIZE, 1);
+  // recover write bit in original PTE
+  // if mappages fail
+  // *pte = *pte | PTE_W;
   return -1;
 }
 
@@ -347,9 +367,23 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
-
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    // cow lab
+    if(is_cow(pagetable, va0)) {
+      uint64 ka = (uint64)kalloc();
+      if(ka == 0) {
+        return -1;
+      }
+      pa0 = walkaddr(pagetable, va0);
+      memmove((char*)ka, (char*)pa0, PGSIZE);
+      uvmunmap(pagetable, va0, 1, 1);
+      if(mappages(pagetable, va0, PGSIZE, ka, PTE_W|PTE_U|PTE_R|PTE_X) != 0) {
+        printf("map fail\n");
+        return -1;
+      }
+    }
+
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
@@ -430,5 +464,28 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return 0;
   } else {
     return -1;
+  }
+}
+
+// cow lab: determine if a page is cow page
+// if it is return 1, else return 0. 
+int is_cow(pagetable_t pagetable, uint64 va) {
+  pte_t *pte;
+  if (va >= MAXVA) {
+      return 0;
+  }
+  if ((pte = walk(pagetable, va, 0)) == 0) {
+      return 0;
+  }
+  if ((*pte & PTE_V) == 0) {
+      return 0;
+  }
+  if ((*pte & PTE_U) == 0) {
+      return 0;
+  }
+  if((*pte & PTE_C) != 0) {
+    return 1;
+  } else {
+    return 0;
   }
 }

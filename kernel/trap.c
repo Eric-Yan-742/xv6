@@ -16,6 +16,9 @@ void kernelvec();
 
 extern int devintr();
 
+// cow lab: page reference count
+pte_t *walk(pagetable_t, uint64, int);
+
 void
 trapinit(void)
 {
@@ -65,6 +68,44 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 15) {
+    // copy on write
+
+    uint64 va = r_stval();
+    // pte_t *pte = walk(p->pagetable, va, 0);
+    // printf("PTE before remap: %p\n", *pte);
+
+    uint64 pa;
+
+    // if process writes to a not allocated or not writable address
+    if(va >= p->sz) {
+      exit(-1);
+    }
+
+    // check if this va is in a cow page
+    if(!is_cow(p->pagetable, va)) {
+      exit(-1);
+    }
+
+    // allocate physical page
+    uint64 ka = (uint64)kalloc();
+    // if no free memory
+    if(ka == 0) {
+      printf("exit because no free memory\n");
+      exit(-1);
+    }
+    
+    va = PGROUNDDOWN(va);
+    pa = walkaddr(p->pagetable, va);
+    // copy the original physical page to the new page
+    memmove((char*)ka, (char*)pa, PGSIZE);
+
+    uvmunmap(p->pagetable, va, 1, 1);
+    // map to the new page with PTE_W set
+    if(mappages(p->pagetable, va, PGSIZE, ka, PTE_W|PTE_U|PTE_R|PTE_X) != 0) {
+      kfree((void *) ka);
+      exit(-1);
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
