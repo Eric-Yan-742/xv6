@@ -17,6 +17,10 @@ struct entry *table[NBUCKET];
 int keys[NKEYS];
 int nthread = 1;
 
+// one lock per bucket
+// because each bucket corresponds to different memory location
+// they will not conflict with each other
+pthread_mutex_t bucket_lock[NBUCKET];
 
 double
 now()
@@ -41,6 +45,8 @@ void put(int key, int value)
 {
   int i = key % NBUCKET;
 
+  // acquire lock because we will change table
+  pthread_mutex_lock(&bucket_lock[i]);
   // is the key already present?
   struct entry *e = 0;
   for (e = table[i]; e != 0; e = e->next) {
@@ -51,9 +57,11 @@ void put(int key, int value)
     // update the existing key.
     e->value = value;
   } else {
-    // the new is new.
+    // acquire the corresponding lock
+    // the key is new.
     insert(key, value, &table[i], table[i]);
   }
+  pthread_mutex_unlock(&bucket_lock[i]);
 
 }
 
@@ -105,6 +113,10 @@ main(int argc, char *argv[])
   void *value;
   double t1, t0;
 
+  // initialize the lock
+  for(int i = 0; i < NBUCKET; i++) {
+    pthread_mutex_init(&bucket_lock[i], NULL);
+  }
 
   if (argc < 2) {
     fprintf(stderr, "Usage: %s nthreads\n", argv[0]);
