@@ -102,7 +102,34 @@ e1000_transmit(struct mbuf *m)
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
   //
+  printf("I'm transmit\n");
+  acquire(&e1000_lock);
   
+  printf("transmit gets the lock\n");
+
+  int idx = regs[E1000_TDT];
+  // in case indx overflows;
+  idx = idx % TX_RING_SIZE;
+
+  if(!(tx_ring[idx].status & E1000_TXD_STAT_DD)) {
+    release(&e1000_lock);
+    return -1;
+  }
+  if(tx_mbufs[idx]) {
+    mbuffree(tx_mbufs[idx]);
+  }
+  // fill in the descriptor
+  tx_ring[idx].addr = (uint64)m->head;
+  tx_ring[idx].length = m->len;
+  tx_ring[idx].cmd = E1000_TXD_CMD_EOP | E1000_TXD_CMD_RS;
+  // stash away a pointer for later freeing
+  tx_mbufs[idx] = m;
+  // increment descriptor pointer
+  regs[E1000_TDT]++;
+  regs[E1000_TDT] %= TX_RING_SIZE;
+  printf("transmit release\n");
+
+  release(&e1000_lock);
   return 0;
 }
 
@@ -115,6 +142,42 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
   //
+
+  printf("handler\n");
+  acquire(&e1000_lock);
+  printf("get the lock!\n");
+  if(!intr_get()) {
+    printf("interrupt is off!\n");
+  } else {
+    printf("interrupt is on!");
+  }
+
+  while(1) {
+    printf("enter the loop\n");
+    int idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+    if(!(rx_ring[idx].status & E1000_RXD_STAT_DD)) {
+      printf("before release\n");
+      release(&e1000_lock);
+      printf("release the lock!\n");
+      return;
+    }
+    printf("handler running\n");
+    rx_mbufs[idx]->len = rx_ring[idx].length;
+    // send the current mbuf to net stack
+    net_rx(rx_mbufs[idx]);
+    // replace it with a new mbuf
+    rx_mbufs[idx] = mbufalloc(0);
+    if (!rx_mbufs[idx])
+      panic("e1000");
+    rx_ring[idx].addr = (uint64) rx_mbufs[idx]->head;
+    // clear descriptor's status bits
+    rx_ring[idx].status = 0;
+    // point RDT to this descriptor
+    regs[E1000_RDT] = idx;
+    printf("handler running\n");
+  }
+  
+  release(&e1000_lock);
 }
 
 void
