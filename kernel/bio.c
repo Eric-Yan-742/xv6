@@ -30,11 +30,6 @@ extern uint ticks;
 struct {
   struct spinlock lock;
   struct buf buf[BUCKETSIZE];
-
-  // Linked list of all buffers, through prev/next.
-  // Sorted by how recently the buffer was used.
-  // head.next is most recent, head.prev is least.
-  struct buf head;
 } buckets[NBUCKET];
 
 uint hash(uint blockno)
@@ -67,7 +62,7 @@ bget(uint dev, uint blockno)
   for(int i = 0; i < BUCKETSIZE; i++){
     b = &buckets[bucketId].buf[i];
     if(b->dev == dev && b->blockno == blockno){
-      // b->lastUse = ticks;
+      b->lastUse = ticks; // update the use time
       b->refcnt++;
       release(&buckets[bucketId].lock);
 
@@ -87,34 +82,14 @@ bget(uint dev, uint blockno)
       leastIdx = i;
     }
   }
-  // if (leastIdx == -1)
-  // {
-  //   for (int i = 0; i < NBUCKET; i++)
-  //   {
-  //     if (i != bucketId) // 跳过当前桶
-  //     {
-  //       acquire(&buckets[i].lock);
-  //       for (int j = 0; j < BUCKETSIZE; j++)
-  //       {
-  //         b = &buckets[i].buf[j];
-  //         if (b->refcnt == 0 && b->lastUse < leastTime)
-  //         {
-  //           leastTime = b->lastUse;
-  //           leastIdx = j;
-  //         }
-  //       }
-  //       release(&buckets[i].lock);
-  //     }
-  //   }
-  // }
   if(leastIdx == -1)
     panic("bget: no buffers can recycle");
   b = &buckets[bucketId].buf[leastIdx];
   b->dev = dev;
   b->blockno = blockno;
-  // b->lastUse = ticks;
   b->valid = 0;
   b->refcnt = 1;
+  b->lastUse = ticks; // update the use time
   release(&buckets[bucketId].lock);
   acquiresleep(&b->lock);
   return b;
@@ -156,9 +131,6 @@ brelse(struct buf *b)
   uint bucketId = hash(b->blockno);
   acquire(&buckets[bucketId].lock);
   b->refcnt--;
-  if(b->refcnt == 0) {
-    b->lastUse = ticks;
-  }
   release(&buckets[bucketId].lock);
 }
 
