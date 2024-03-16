@@ -23,32 +23,33 @@
 #include "fs.h"
 #include "buf.h"
 
+#define NBUCKET 13
+#define BUCKETSIZE 8
+
+extern uint ticks;
 struct {
   struct spinlock lock;
-  struct buf buf[NBUF];
+  struct buf buf[BUCKETSIZE];
 
   // Linked list of all buffers, through prev/next.
   // Sorted by how recently the buffer was used.
   // head.next is most recent, head.prev is least.
   struct buf head;
-} bcache;
+} buckets[NBUCKET];
+
+uint hash(uint blockno)
+{
+  return blockno % NBUCKET;
+}
 
 void
 binit(void)
 {
-  struct buf *b;
-
-  initlock(&bcache.lock, "bcache");
-
-  // Create linked list of buffers
-  bcache.head.prev = &bcache.head;
-  bcache.head.next = &bcache.head;
-  for(b = bcache.buf; b < bcache.buf+NBUF; b++){
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
-    initsleeplock(&b->lock, "buffer");
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
+  for(int i = 0; i < NBUCKET; i++) {
+    initlock(&buckets[i].lock, "bcache");
+    for(int j = 0; j < BUCKETSIZE; j++) {
+      initsleeplock(&buckets[i].buf[j].lock, "buffer");
+    }
   }
 }
 
@@ -59,33 +60,64 @@ static struct buf*
 bget(uint dev, uint blockno)
 {
   struct buf *b;
+  uint bucketId = hash(blockno);
+  acquire(&buckets[bucketId].lock);
 
-  acquire(&bcache.lock);
-
-  // Is the block already cached?
-  for(b = bcache.head.next; b != &bcache.head; b = b->next){
+  // Is the block already cached in this bucket?
+  for(int i = 0; i < BUCKETSIZE; i++){
+    b = &buckets[bucketId].buf[i];
     if(b->dev == dev && b->blockno == blockno){
+      // b->lastUse = ticks;
       b->refcnt++;
-      release(&bcache.lock);
+      release(&buckets[bucketId].lock);
+
       acquiresleep(&b->lock);
       return b;
     }
   }
 
+  uint leastTime = 0xffffffff;
+  int leastIdx = -1;
   // Not cached.
   // Recycle the least recently used (LRU) unused buffer.
-  for(b = bcache.head.prev; b != &bcache.head; b = b->prev){
-    if(b->refcnt == 0) {
-      b->dev = dev;
-      b->blockno = blockno;
-      b->valid = 0;
-      b->refcnt = 1;
-      release(&bcache.lock);
-      acquiresleep(&b->lock);
-      return b;
+  for(int i = 0; i < BUCKETSIZE; i++){
+    b = &buckets[bucketId].buf[i];
+    if(b->refcnt == 0 && b->lastUse < leastTime) {
+      leastTime = b->lastUse;
+      leastIdx = i;
     }
   }
-  panic("bget: no buffers");
+  // if (leastIdx == -1)
+  // {
+  //   for (int i = 0; i < NBUCKET; i++)
+  //   {
+  //     if (i != bucketId) // 跳过当前桶
+  //     {
+  //       acquire(&buckets[i].lock);
+  //       for (int j = 0; j < BUCKETSIZE; j++)
+  //       {
+  //         b = &buckets[i].buf[j];
+  //         if (b->refcnt == 0 && b->lastUse < leastTime)
+  //         {
+  //           leastTime = b->lastUse;
+  //           leastIdx = j;
+  //         }
+  //       }
+  //       release(&buckets[i].lock);
+  //     }
+  //   }
+  // }
+  if(leastIdx == -1)
+    panic("bget: no buffers can recycle");
+  b = &buckets[bucketId].buf[leastIdx];
+  b->dev = dev;
+  b->blockno = blockno;
+  // b->lastUse = ticks;
+  b->valid = 0;
+  b->refcnt = 1;
+  release(&buckets[bucketId].lock);
+  acquiresleep(&b->lock);
+  return b;
 }
 
 // Return a locked buf with the contents of the indicated block.
@@ -121,33 +153,29 @@ brelse(struct buf *b)
 
   releasesleep(&b->lock);
 
-  acquire(&bcache.lock);
+  uint bucketId = hash(b->blockno);
+  acquire(&buckets[bucketId].lock);
   b->refcnt--;
-  if (b->refcnt == 0) {
-    // no one is waiting for it.
-    b->next->prev = b->prev;
-    b->prev->next = b->next;
-    b->next = bcache.head.next;
-    b->prev = &bcache.head;
-    bcache.head.next->prev = b;
-    bcache.head.next = b;
+  if(b->refcnt == 0) {
+    b->lastUse = ticks;
   }
-  
-  release(&bcache.lock);
+  release(&buckets[bucketId].lock);
 }
 
 void
 bpin(struct buf *b) {
-  acquire(&bcache.lock);
+  uint bucketId = hash(b->blockno);
+  acquire(&buckets[bucketId].lock);
   b->refcnt++;
-  release(&bcache.lock);
+  release(&buckets[bucketId].lock);
 }
 
 void
 bunpin(struct buf *b) {
-  acquire(&bcache.lock);
+  uint bucketId = hash(b->blockno);
+  acquire(&buckets[bucketId].lock);
   b->refcnt--;
-  release(&bcache.lock);
+  release(&buckets[bucketId].lock);
 }
 
 

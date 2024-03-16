@@ -95,42 +95,31 @@ kalloc(void)
   acquire(&kmem[cpu].lock);
   if (!kmem[cpu].freelist)
   {
-    int steal_page_num = 64; // how many physical pages to steal
+    int steal_page_num = 64; // number of pages to steal
     for (int i = 0; i < NCPU; i++)
     {
-      // don't steal when traverse the current CPU
       if (i == cpu)
       {
         continue;
-      } 
-      // ensure that we only hold one lock at anytime. To avoid dead locks
-      if(holding(&kmem[cpu].lock))
-        release(&kmem[cpu].lock);
+      } // don't steal from this CPU itself
       acquire(&kmem[i].lock);
       struct run *other_cpu_freepage = kmem[i].freelist;
-      // stealing process
       while (other_cpu_freepage && steal_page_num)
       {
         kmem[i].freelist = other_cpu_freepage->next;
-        release(&kmem[i].lock);
-        acquire(&kmem[cpu].lock);
         other_cpu_freepage->next = kmem[cpu].freelist;
         kmem[cpu].freelist = other_cpu_freepage;
-        release(&kmem[cpu].lock);
-        acquire(&kmem[i].lock);
         other_cpu_freepage = kmem[i].freelist;
         steal_page_num--;
       } 
       release(&kmem[i].lock);
-      // finish stealing, exit loop
+      // if no pages to steal, we just break and let r = 0
       if (steal_page_num == 0)
       {
         break;
-      }
+      } 
     }
   }
-  if(!holding(&kmem[cpu].lock))
-    acquire(&kmem[cpu].lock);
   r = kmem[cpu].freelist;
   if (r)
     kmem[cpu].freelist = r->next;
