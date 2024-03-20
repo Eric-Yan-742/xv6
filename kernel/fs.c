@@ -379,7 +379,6 @@ bmap(struct inode *ip, uint bn)
 {
   uint addr, *a;
   struct buf *bp;
-  // printf("bn: %d\n");
 
   if(bn < NDIRECT){
     if((addr = ip->addrs[bn]) == 0)
@@ -389,7 +388,6 @@ bmap(struct inode *ip, uint bn)
   bn -= NDIRECT;
 
   if(bn < NINDIRECT){
-    // printf("get single indirect\n");
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0)
       ip->addrs[NDIRECT] = addr = balloc(ip->dev);
@@ -404,8 +402,7 @@ bmap(struct inode *ip, uint bn)
   }
   bn -= NINDIRECT;
 
-  if(bn < NINDIRECT) {
-    printf("get sec level\n");
+  if(bn < NININDIRECT) {
     // load the first level, allocating if necessary
     if((addr = ip->addrs[NDIRECT + 1]) == 0)
       ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev);
@@ -428,7 +425,6 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
-
   panic("bmap: out of range");
 }
 
