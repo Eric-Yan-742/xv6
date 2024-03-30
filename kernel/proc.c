@@ -295,6 +295,14 @@ fork(void)
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
 
+  // copy VMA table
+  for(int i = 0; i < 16; i++) {
+    if(p->mmap[i].addr) {
+      np->mmap[i] = p->mmap[i];
+      filedup(p->mmap[i].f);
+    }
+  }
+
   // increment reference counts on open file descriptors.
   for(i = 0; i < NOFILE; i++)
     if(p->ofile[i])
@@ -350,6 +358,17 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+  // clear all VMA
+  for(int i = 0; i < 16; i++) {
+    struct VMA *area = &p->mmap[i];
+    if(area->addr) {
+      if(area->shared)
+        filewrite(area->f, area->addr, area->length);
+      fileclose(area->f);
+      area->addr = 0;
+      area->f = 0;
     }
   }
 

@@ -145,6 +145,7 @@ void            trapinit(void);
 void            trapinithart(void);
 extern struct spinlock tickslock;
 void            usertrapret(void);
+uint64          alloc_memory_page(uint64, pagetable_t);
 
 // uart.c
 void            uartinit(void);

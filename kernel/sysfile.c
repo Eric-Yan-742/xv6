@@ -484,3 +484,95 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64
+sys_mmap(void)
+{
+  uint64 addr;
+  int length, prot, flags;
+  int perm = PTE_U, shared = 0;
+  struct proc *p = myproc();
+  struct file *f;
+  if(argint(1, &length) < 0 || argint(2, &prot) < 0 
+      || argint(3, &flags) < 0 || argfd(4, 0, &f) < 0) {
+    return -1;
+  }
+  addr = p->sz;
+  p->sz += length;
+  if(prot & PROT_READ)
+    perm |= PTE_R;
+  if(prot & PROT_WRITE)
+    perm |= PTE_W;
+  if(prot & PROT_EXEC)
+    perm |= PTE_X;
+  if(flags & MAP_SHARED) {
+    if(!f->writable && (prot & PROT_WRITE))
+      return -1;
+    shared = 1;
+  }
+  filedup(f);
+  struct VMA *area = 0;
+  for(int i = 0; i < 16; i++) {
+    // if this vma is free
+    if(p->mmap[i].addr == 0) {
+      area = &(p->mmap[i]);
+      area->addr = addr;
+      area->length = length;
+      area->perm = perm;
+      area->shared = shared;
+      area->f = f;
+      break;
+    }
+  }
+  if(area == 0)
+    panic("no VMA available");
+  
+  return addr;
+}
+
+uint64
+sys_munmap(void)
+{
+  struct proc *p = myproc();
+  uint64 start, end;
+  int length;
+  if(argaddr(0, &start) < 0 || argint(1, &length))
+    return -1;
+  end = start + (uint64)length;
+  // find the VMA
+  struct VMA *area = 0;
+  uint64 file_start, file_end;
+  for(int i = 0; i < 16; i++) {
+    file_start = p->mmap[i].addr;
+    file_end = p->mmap[i].addr + p->mmap[i].length;
+    // if the region is in this VMA
+    if(p->mmap[i].addr && start >= file_start && end <= file_end) {
+      area = &(p->mmap[i]);
+      break;
+    }
+  }
+  if(area == 0)
+    return -1;
+
+  struct file *f = area->f;
+  // write back if MAP_SHARED and va is mapped
+  if(area->shared && walkaddr(p->pagetable, start)) {
+    filewrite(f, start, length);
+  }
+  // unmap, free the pages.
+  start = PGROUNDDOWN(start);
+  uvmunmap(p->pagetable, start, length / PGSIZE, 1);
+  // if unmap the whole file, close the file and clear VMA
+  if(length == area->length) {
+    fileclose(f);
+    area->addr = 0;
+    area->f = 0;
+  } else {
+    // if not the whole file, modify VMA
+    area->length -= length;
+    if(start == file_start) {
+      area->addr = end;
+    } 
+  }
+  return 0;
+}

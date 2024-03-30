@@ -5,6 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -29,6 +32,66 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+// 分配一个实际物理内存，并映射到 va 中，将这个 mapping 添加到 page table 中
+uint64
+alloc_memory_page(uint64 va, pagetable_t pagetable)
+{
+  // get the vma
+  struct proc *p = myproc();
+  struct VMA *area = 0;
+  uint64 file_start = 0;
+  uint64 file_end = 0;
+  for(int i = 0; i < 16; i++) {
+    // if va is in this vma's range
+    file_start = p->mmap[i].addr;
+    file_end = p->mmap[i].addr + p->mmap[i].length;
+    if(p->mmap[i].addr && va >= file_start && va < file_end) {
+      area = &(p->mmap[i]);
+      break;
+    }
+  }
+  if(area == 0)
+    return 0;
+  
+  // map this page
+  uint64 ka = (uint64) kalloc();
+  if (ka == 0) {  // 如果物理内存不足
+    return 0;
+  }
+  memset((void*) ka, 0, PGSIZE);  // 为这块地址填充 0
+  va = PGROUNDDOWN(va);  // round the faulting virtual address down to a page boundary.
+  if (mappages(pagetable, va, PGSIZE, ka,  area->perm) != 0) {
+    kfree((void*) ka);
+    return 0;
+  }
+
+  // read from file to virtual memory
+  begin_op();
+  struct inode *ip = area->f->ip;
+  ilock(ip);
+  readi(ip, 1, va, va - file_start, PGSIZE);
+  iunlock(ip);
+  end_op();
+  
+
+  return ka;
+}
+                       
+//
+// handle page fault
+//
+void 
+page_fault_handler(struct proc * const p)
+{
+  uint64 va = r_stval();  // 触发 page fault 的虚拟地址
+  if (p->sz <= va || va < p->trapframe->sp) {  // 如果 va 高于 sbrk 申请的地址或者低于栈顶地址
+    p->killed = 1;
+  } else {
+    if(alloc_memory_page(va, p->pagetable) == 0)
+      p->killed = 1;
+  }
+}
+                       
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -67,6 +130,8 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if(r_scause() == 13 || r_scause() == 15) {
+    page_fault_handler(p);
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
