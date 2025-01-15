@@ -1,3 +1,14 @@
+This repo contains the source code of the xv6 OS and my extensions to it 
+following the lab assignments of the open course MIT 6.s081. Each branch 
+corresponds to one extended functionality.  
+
+For more information about xv6 and how to run the code, refer to 
+the course website https://pdos.csail.mit.edu/6.S081/2021/schedule.html
+
+Below is the README from the xv6 source repo
+
+---
+
 xv6 is a re-implementation of Dennis Ritchie's and Ken Thompson's Unix
 Version 6 (v6).  xv6 loosely follows the structure and style of v6,
 but is implemented for a modern RISC-V multiprocessor using ANSI C.
